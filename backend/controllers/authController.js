@@ -17,12 +17,17 @@ const generateToken = (id, role) => {
 
 const normalizeCode = (value) => (value || "").trim().toLowerCase();
 
-const resolveUserRole = (role, email, adminCode) => {
-  const normalizedEmail = (email || "").trim().toLowerCase();
-  const isAdminEmail = normalizedEmail.includes("admin");
-  const isAdminCodeValid = Boolean(adminCode) && normalizeCode(adminCode).length >= 4;
+const getConfiguredAdminCode = () => normalizeCode(process.env.ADMIN_ACCESS_CODE || process.env.ADMIN_CODE || "");
 
-  if (role === "admin" || isAdminCodeValid || isAdminEmail) {
+const resolveUserRole = (role, email, adminCode, storedAdminCode) => {
+  const normalizedEmail = (email || "").trim().toLowerCase();
+  const normalizedAdminCode = normalizeCode(adminCode);
+  const normalizedStoredCode = normalizeCode(storedAdminCode);
+  const configuredAdminCode = getConfiguredAdminCode();
+  const isAdminEmail = normalizedEmail.includes("admin");
+  const isAdminCodeMatch = Boolean(normalizedAdminCode) && (normalizedAdminCode === normalizedStoredCode || normalizedAdminCode === configuredAdminCode);
+
+  if (role === "admin" || isAdminEmail || isAdminCodeMatch) {
     return "admin";
   }
 
@@ -34,8 +39,23 @@ const isValidAdminCode = async (adminCode) => {
 
   if (!normalizedCode) return false;
 
+  const configuredAdminCode = getConfiguredAdminCode();
+  if (normalizedCode === configuredAdminCode) return true;
+
   const existingAdmin = await User.findOne({ role: "admin", adminCode: normalizedCode });
   return Boolean(existingAdmin);
+};
+
+const isAdminAccessAllowed = (user, providedCode) => {
+  const normalizedProvidedCode = normalizeCode(providedCode);
+  const configuredAdminCode = getConfiguredAdminCode();
+  const storedAdminCode = normalizeCode(user?.adminCode);
+
+  if (user?.role === "admin") {
+    return Boolean(normalizedProvidedCode && (normalizedProvidedCode === storedAdminCode || normalizedProvidedCode === configuredAdminCode));
+  }
+
+  return Boolean(normalizedProvidedCode && (normalizedProvidedCode === storedAdminCode || normalizedProvidedCode === configuredAdminCode));
 };
 
 const isValidEmail = (email) => {
@@ -180,13 +200,14 @@ const loginUser = async (req, res, next) => {
 
     if (user.role === "admin") {
       const normalizedAdminCode = normalizeCode(adminCode);
+      const configuredAdminCode = getConfiguredAdminCode();
       const storedAdminCode = normalizeCode(user.adminCode);
 
-      if (!storedAdminCode) {
+      if (!storedAdminCode && !configuredAdminCode) {
         return res.status(403).json({ message: "Admin access code is required." });
       }
 
-      if (normalizedAdminCode !== storedAdminCode) {
+      if (!isAdminAccessAllowed(user, adminCode)) {
         return res.status(403).json({ message: "Invalid admin access code." });
       }
     }
@@ -199,7 +220,7 @@ const loginUser = async (req, res, next) => {
       });
     }
 
-    const resolvedRole = resolveUserRole(user.role, user.email);
+    const resolvedRole = resolveUserRole(user.role, user.email, adminCode, user.adminCode);
 
     if (user.role !== resolvedRole) {
       user.role = resolvedRole;
