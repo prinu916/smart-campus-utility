@@ -33,7 +33,8 @@ const Login = () => {
       }
     } catch (err) {
       console.error("Login Error:", err);
-      setError(err.response?.data?.message || 'Login failed. Please check your credentials.');
+      const backendMessage = err.response?.data?.message || err.response?.data?.error || err.message;
+      setError(backendMessage || 'Login failed. Please check your credentials.');
     } finally {
       setLoading(false);
     }

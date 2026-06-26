@@ -50,8 +50,9 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password, adminCode = "") => {
     const { data } = await api.post("/auth/login", { email, password, adminCode });
-    persistSession(data);
-    return data;
+    const responseData = data && data.user ? data : { token: data?.token, user: data?.user || data };
+    persistSession(responseData);
+    return responseData;
   };
 
   const register = async (payload) => {
